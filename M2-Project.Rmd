@@ -1,0 +1,104 @@
+---
+title: "M2-Project"
+author: "Zixuan Hu"
+date: "2023-03-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+1. Read in the three sequences of images (FLAIR, MPRAGE, T1) as well as the brain mask from the Kirby 21 dataset used in Lecture 2.
+```{r}
+# T1-w
+library(oro.nifti)
+T1 <- readNIfTI('113-01-MPRAGE_processed.nii.gz', reorient=FALSE)
+orthographic(T1)
+# FLAIR
+FLAIR <- readNIfTI('113-01-FLAIR_regToT1.nii.gz', reorient=FALSE)
+orthographic(FLAIR)
+# T2-w
+T2 <- readNIfTI('113-01-T2w_regToT1.nii.gz', reorient=FALSE)
+orthographic(T2)
+# Mask
+mask <- readNIfTI('113-01-MPRAGE_mask.nii.gz', reorient=FALSE)
+orthographic(mask)
+```
+
+2. Create a dataframe with the intensities from all 3 sequences and the brain mask. Make sure to create a voxel level identifier for each voxel (as done in the lecture).
+```{r}
+library(ggplot2)
+library(dplyr)
+brain.data <- data.frame(
+  T1 = c(T1), 
+  FLAIR = c(FLAIR), 
+  T2 = c(T2), 
+  mask = c(mask)
+) %>% 
+  mutate(voxel.id = 1:n())
+```
+
+3. Perform k-means clustering using the intensisites from all three imaging sequences over the brain mask. Make sure to normalize the intensities before performing k-means.
+```{r}
+brain.data.mask <- brain.data %>% 
+  filter(mask == 1)
+brain.data.cluster <- brain.data.mask %>%
+  select(T1,FLAIR,T2)
+
+# Normalize the intensity values
+brain.data.cluster.norm <- scale(brain.data.cluster)
+
+# Perform k-means clustering
+kmeans.brain <- kmeans(
+  x = brain.data.cluster.norm, 
+  centers = 3)
+
+# Add the cluster assignments to the data frame
+brain.data.mask$cluster <- kmeans.brain$cluster
+brain.data <- brain.data %>%
+  left_join(brain.data.mask %>% select(voxel.id,
+                                       cluster))
+```
+
+4. Put the cluster assignments back into a nifti array. Plot the image of the assigned clusters using the orthographic function.
+```{r}
+library(fslr)
+clusters <- niftiarr(FLAIR, brain.data$cluster)
+orthographic(clusters)
+```
+
+5. Plot each cluster individually using the orthographic function and identify what tissue class the cluster is segmenting.
+```{r}
+orthographic(clusters == 1)
+orthographic(clusters == 2)
+orthographic(clusters == 3)
+```
+
+6. Sample 100 voxels from each of the clusters. Plot the T1 versus the FLAIR intensity for these 300 voxels in a scatter plot and color by cluster. Then the T1 versus the T2 and the T2 versus the FLAIR. Comment on what you observe.
+```{r}
+# Select 100 voxels from each of the three clusters
+cluster1_voxels <- brain.data %>% filter(cluster == 1) %>% sample_n(100)
+cluster2_voxels <- brain.data %>% filter(cluster == 2) %>% sample_n(100)
+cluster3_voxels <- brain.data %>% filter(cluster == 3) %>% sample_n(100)
+
+# Combine the selected voxels into a single data frame
+selected_voxels <- rbind(cluster1_voxels, cluster2_voxels, cluster3_voxels)
+
+# Create scatter plots of T1 vs FLAIR, T1 vs T2, and T2 vs FLAIR
+ggplot(selected_voxels, aes(x = T1, y = FLAIR, color = factor(cluster))) +
+  geom_point() +
+  labs(x = "T1 intensity", y = "FLAIR intensity", color = "Cluster")
+
+ggplot(selected_voxels, aes(x = T1, y = T2, color = factor(cluster))) +
+  geom_point() +
+  labs(x = "T1 intensity", y = "T2 intensity", color = "Cluster")
+
+ggplot(selected_voxels, aes(x = T2, y = FLAIR, color = factor(cluster))) +
+  geom_point() +
+  labs(x = "T2 intensity", y = "FLAIR intensity", color = "Cluster")
+```
+
+Based on the clustering results and the scatter plots, we can observe:
+One cluster appears to be segmenting brain tissue with high FLAIR and T2 intensity, but lower T1 intensity. This may correspond to white matter or cerebrospinal fluid (CSF) in the ventricles.
+Another cluster appears to be segmenting brain tissue with high T1 and T2 intensity, but lower FLAIR intensity. This may correspond to gray matter.
+The third cluster appears to be segmenting brain tissue with lower intensities across all three sequences. This may correspond to background or non-brain tissue.

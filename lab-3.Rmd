@@ -1,0 +1,58 @@
+---
+title: "lab-3"
+output: html_document
+date: "2023-01-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+setwd("/Users/huzixuan/Desktop/Big\ Data\ in\ Med/lab_3")
+ben_df <- read.csv("DE1_0_2008_Beneficiary_Summary_File_Sample_1.csv",header = T, sep = "," )
+clm_df <- read.csv("DE1_0_2008_to_2010_Inpatient_Claims_Sample_1.csv",header = T, sep = "," )
+table(ben_df$BENE_SEX_IDENT_CD)
+```
+
+```{r}
+library(dplyr)
+tbl <- as.data.frame(sort(table(clm_df$DESYNPUF_ID),decreasing = T))
+tbl <- filter(tbl, tbl$Freq > 2)
+q1 <- length(tbl$Var1)
+q1
+```
+
+```{r}
+library(lubridate)
+df_1 <- data.frame(clm_df$DESYNPUF_ID, clm_df$CLM_ADMSN_DT, clm_df$NCH_BENE_DSCHRG_DT)
+df_2 <- data.frame(ben_df$DESYNPUF_ID, ben_df$BENE_BIRTH_DT, ben_df$BENE_SEX_IDENT_CD, ben_df$BENE_RACE_CD)
+colnames(df_1) <- c("ID", "Adm_date", "Dsc_date")
+colnames(df_2) <- c("ID", "Birth", "Sex", "Race")
+df <- merge(df_2, df_1, by = "ID")
+df$LengthOfStay <- difftime(ymd(df$Dsc_date), ymd(df$Adm_date), units = "days")
+df$LengthOfStay <- as.integer(df$LengthOfStay)
+df$Age <- difftime(ymd(df$Adm_date), ymd(df$Birth), units = "days")
+df$Age <- round(as.integer(df$Age)/365)
+df <- data.frame(df$ID, df$Race, df$Age, df$Sex, df$LengthOfStay)
+colnames(df) <- c("ID", "Race", "Age", "Sex", "LengthOfStay")
+
+library(tidyverse)
+mod1 <- lm(df$LengthOfStay~df$Race)
+summary(mod1)
+mod2 <- lm(df$LengthOfStay~df$Age)
+summary(mod2)
+mod3 <- lm(df$LengthOfStay~df$Sex)
+summary(mod3)
+```
+```{r}
+d1 <- filter(clm_df, rowMeans(clm_df[,21:30] == 4275) > 0) 
+d1 <- data.frame(d1$DESYNPUF_ID, d1$CLM_ADMSN_DT)
+d2 <- data.frame(ben_df$DESYNPUF_ID, ben_df$BENE_BIRTH_DT)
+colnames(d1) <- c("ID", "Adm_date")
+colnames(d2) <- c("ID", "Birth")
+d <- merge(d1, d2, by = "ID")
+d$Age <- difftime(ymd(d$Adm_date), ymd(d$Birth), units = "days")
+d$Age <- round(as.integer(d$Age)/365)
+q3 <- mean(d$Age)
+```

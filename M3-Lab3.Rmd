@@ -1,0 +1,89 @@
+---
+title: "M3-Lab3"
+author: "Zixuan Hu"
+date: "2023-03-22"
+output: html_document
+---
+Exercise 1
+In this lab, we have used two covariates in the model: the growth condition and the library preparation protocol.
+```{r}
+library(remotes)
+library(yeastRNASeqRisso2011)
+data("geneLevelCounts")
+data("geneInfo")
+data("laneInfo")
+library(SummarizedExperiment)
+se <- SummarizedExperiment(assays = list(counts = geneLevelCounts), colData = laneInfo, rowData = geneInfo)
+```
+• Using the plots and summaries from Lab 2, perform an exploratory data analysis on the dataset to check whether the lib_prep_proto variable influences the data. Do you think it was a good choice to include it as a confounder in the model? What do you think it would happen if we do not include the variable in the model?
+```{r}
+library(edgeR)
+filter <- rowMeans(assay(se)) >= 10
+filtered <- se[filter,]
+dge <- DGEList(assay(filtered))
+dge <- calcNormFactors(dge, method = "TMM")
+design <- model.matrix(~ growth_cond + lib_prep_proto, data = colData(se))
+dge <- estimateDisp(dge, design)
+fit <- glmFit(dge, design)
+head(fit$coefficients)
+res <- glmLRT(fit, coef = 2:3)
+res
+top <- topTags(res, n=Inf)$table
+# lib_prep_proto is a predictor variable in a linear regression model.
+# It may be better to include lib_prep_proto as a confounder in the model. Including it as a confounder can help to control for its potential influence on the relationship between the outcome variable and other predictor variables.
+# If lib_prep_proto is not included in the model, the estimates of the coefficients of the other predictor variables may be biased and potentially confounded by lib_prep_proto. Additionally, not including lib_prep_proto in the model may lead to a loss of predictive accuracy.
+```
+• Re-do the same analysis above without the lib_prep_proto variable. How many differentially expressed genes do you find? How many in common with the previous analysis? Comment on the consequences of these results.
+```{r}
+design2 <- model.matrix(~ growth_cond, data = colData(se))
+dge2 <- estimateDisp(dge, design2)
+fit2 <- glmFit(dge2, design2)
+res2 <- glmLRT(fit2, coef = 2:3)
+top2 <- topTags(res2, n=Inf)$table
+table(top2$FDR <= 0.05)
+table(top$FDR <= 0.05, top2$FDR <= 0.05)
+# There are 3315 genes that are differentially expressed when lib_prep_proto is not included. There are 2,219 genes that were found to be differentially expressed in the previous analysis.
+# The exclusion of the lib_prep_proto variable resulted in the detection of more differentially expressed genes, although it is important to note that the comparison is between two different designs, and thus the difference in the number of differentially expressed genes cannot be solely attributed to the exclusion of the lib_prep_proto variable.
+```
+Exercise 2
+As we said at the beginning of the lab, the other popular package for gene differential expression is DESeq2.
+Re-run the analysis of this lab using the DESeq2 workflow. You can have a look at the vignette (http: //bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html) to understand which functions to use.
+Note: although the package offers the DESeq() wrapper, please describe and explain all the steps of the analysis.
+What normalization method does DESeq2 use? How is the dispersion parameter estimated? Which test statistics did you use?
+```{r}
+library("DESeq2")
+# Create DESeq2 object
+dds <- DESeqDataSet(se, design = ~ growth_cond + lib_prep_proto)
+# Normalization using DESeq2
+dds <- DESeq(dds)
+# Differential expression analysis using DESeq2
+res3 <- results(dds, contrast = c("lib_prep_proto", "Protocol1", "Protocol2"), test = "Wald")
+res3
+# DESeq2 uses the "median of ratios" normalization method, also known as "DESeq normalization", which accounts for differences in sequencing depth and RNA composition between samples.
+# The dispersion parameter is estimated by fitting a negative binomial model to the read counts. This model includes the technical variability estimated from the replicate samples and the biological variability estimated from the entire dataset.
+# DESeq2 uses the Wald test statistics to calculate p-values and adjusted p-values for hypothesis testing.
+```
+Exercise 3
+Compare the results of the edgeR and DESeq2 analyses. Which genes are found differentially expressed in both analyses? Which method finds the most differentially expressed genes? Explore the similarities and differences graphically.
+```{r}
+# test for differential expression
+res.DESeq <- results(dds)
+# subset the results from edgeR for genes with adjusted p-value less than 0.05
+res.edgeR <- as.data.frame(top)
+edgeR_genes <- rownames(res.edgeR)[which(res.edgeR$FDR < 0.05)]
+DESeq2_genes <- rownames(res.DESeq)[which(res.DESeq$padj < 0.05)]
+common_genes <- intersect(edgeR_genes, DESeq2_genes)
+length(edgeR_genes)
+length(DESeq2_genes)
+length(common_genes)
+head(common_genes)
+# Create bar plot
+diff_genes <- c(length(DESeq2_genes), length(edgeR_genes))
+barplot(diff_genes, names.arg=c("DESeq2", "edgeR"))
+# Create MA plot for edgeR
+plotMD(res.edgeR, ylim = c(-2, 2), main = "MA plot - edgeR")
+# Create MA plot for DESeq2
+plotMA(res.DESeq, ylim = c(-2, 2), main = "MA plot - DESeq2")
+# The edgeR analysis found 3532 differentially expressed genes with FDR <= 0.05, while the DESeq2 analysis found 538 differentially expressed genes with FDR <= 0.05. Among the 538 genes identified by DESeq2, 416 were unique to DESeq2 and 122 were also identified by edgeR. The 122 genes found by both methods are: "YLR303W", "YHR018C", "YJR137C", "YDR508C", "YCL018W", and "YML081C-A".
+# It's expected that different methods may identify different sets of differentially expressed genes due to differences in their underlying statistical models and assumptions. In this case, edgeR identified more differentially expressed genes than DESeq2, but it's possible that some of these genes are false positives or not biologically relevant.
+```
